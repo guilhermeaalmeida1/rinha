@@ -1,0 +1,84 @@
+version: "3.5"
+
+services:
+    api-01: &api
+        build:
+            context: ./vendor/laravel/sail/runtimes/8.3
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP}'
+        image: sail-8.3/app
+        container_name: "backend_api_01"
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        deploy:
+            resources:
+                limits:
+                    cpus: "0.375"
+                    memory: "100MB"
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_SAIL: 1
+            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+            XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
+            IGNITION_LOCAL_SITES_PATH: '${PWD}'
+        volumes:
+            - '.:/var/www/html'
+        depends_on:
+            - pgsql
+    api-02:
+        <<: *api
+        container_name: "backend_api_02"
+
+    nginx:
+        image: nginx:latest
+        container_name: "server-rinha"
+        volumes:
+            - ./Docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+        depends_on:
+            - api-01
+            - api-02
+        links:
+            - api-01
+            - api-02
+        ports:
+            # Obrigatório expor/usar a porta 9999 no load balancer!
+            - "9999:9999"
+        networks:
+            - default
+        deploy:
+            resources:
+                limits:
+                    cpus: "0.375"
+                    memory: "100MB"
+
+    pgsql:
+        image: 'postgres:15'
+        ports:
+            - '${FORWARD_DB_PORT:-5432}:5432'
+        environment:
+            PGPASSWORD: '${DB_PASSWORD:-secret}'
+            POSTGRES_DB: '${DB_DATABASE}'
+            POSTGRES_USER: '${DB_USERNAME}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-secret}'
+        volumes:
+            - ./Docker/Pgsql/initial.sql:/docker-entrypoint-initdb.d/11-initial.sql
+            - 'sail-pgsql:/var/lib/postgresql/data'
+            - './vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql'
+            - ./Docker/Pgsql/postgresql.conf:/docker-entrypoint-initdb.d/postgresql.conf
+        command: postgres -c config_file=/docker-entrypoint-initdb.d/postgresql.conf
+        deploy:
+            resources:
+                limits:
+                    cpus: "0.375"
+                    memory: "200MB"
+volumes:
+    db-data:
+        name: "app-data"
+    sail-pgsql:
+        driver: local
+
+networks:
+    default:
+        driver: bridge
+        name: rinha-nginx-2024q1
